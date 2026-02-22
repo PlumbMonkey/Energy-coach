@@ -194,7 +194,7 @@ export default function App() {
       void nativeNotify({ title: 'Daily Inspiration', body: `${quoteObj.text} — ${quoteObj.author}` })
     }
 
-    scheduleDayNotifications({
+    void scheduleDayNotifications({
       ...next,
       breakfastNote: pickRecipe('breakfast', next.dateISO, getAvailableTags(pantry)).title,
       lunchNote: pickRecipe('lunch', next.dateISO, getAvailableTags(pantry)).title,
@@ -203,7 +203,27 @@ export default function App() {
     })
   }
 
-  function scheduleDayNotifications(a: Agenda) {
+  async function scheduleDayNotifications(a: Agenda) {
+    const cap = window.Capacitor?.Plugins?.LocalNotifications
+    if (cap) {
+      // Capacitor path — survives app close, fires at scheduled time
+      try {
+        type CapNotif = { id: number; title: string; body: string; schedule: { at: Date } }
+        const notifications: CapNotif[] = []
+        if (settings.notify.meals) {
+          if (a.breakfastISO) notifications.push({ id: 1, title: 'Breakfast',   body: a.breakfastNote ?? 'Breakfast time', schedule: { at: new Date(a.breakfastISO) } })
+          if (a.lunchISO)     notifications.push({ id: 2, title: 'Lunch',       body: a.lunchNote    ?? 'Lunch time',      schedule: { at: new Date(a.lunchISO) } })
+          if (a.dinnerISO)    notifications.push({ id: 3, title: 'Dinner',      body: a.dinnerNote   ?? 'Dinner time',     schedule: { at: new Date(a.dinnerISO) } })
+        }
+        if (settings.notify.exercise && a.exerciseISO)
+          notifications.push({ id: 4, title: 'Time to Move', body: a.exerciseNote ?? 'Exercise session', schedule: { at: new Date(a.exerciseISO) } })
+        if (notifications.length > 0) await cap.schedule({ notifications })
+        return
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('Capacitor schedule failed — falling back', err)
+      }
+    }
+    // Web fallback — setTimeout path (dies if tab closes)
     const now = Date.now()
     const push = (title: string, body: string, atISO?: string) => {
       if (!atISO) return
@@ -216,8 +236,8 @@ export default function App() {
     }
     if (settings.notify.meals) {
       push('Breakfast', a.breakfastNote ?? 'Breakfast time', a.breakfastISO)
-      push('Lunch', a.lunchNote ?? 'Lunch time', a.lunchISO)
-      push('Dinner', a.dinnerNote ?? 'Dinner time', a.dinnerISO)
+      push('Lunch',     a.lunchNote    ?? 'Lunch time',      a.lunchISO)
+      push('Dinner',    a.dinnerNote   ?? 'Dinner time',     a.dinnerISO)
     }
     if (settings.notify.exercise) push('Time to Move', a.exerciseNote ?? 'Exercise session', a.exerciseISO)
   }
@@ -245,7 +265,7 @@ export default function App() {
       next.exerciseISO = iso
     }
     setAgenda(next)
-    scheduleDayNotifications(next)
+    void scheduleDayNotifications(next)
   }
 
   function editNote(key: AgendaNoteKey, v: string) {
