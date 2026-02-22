@@ -7,7 +7,7 @@ import { ensurePermission, nativeNotify, beep } from './lib/notify'
 import { pickRecipe, formatRecipeNote, recipesFor } from './lib/recipes'
 import { planForDate, planNote } from './lib/exercise'
 import { listTodayEvents, type GEvent } from './lib/google'
-import { defaultSleep, minutesSlept, fmtHhMm, type SleepEntry } from './lib/sleep'
+import { defaultSleep, minutesSlept, fmtHhMm, predictedEnergyLevel, type SleepEntry } from './lib/sleep'
 import {
   loadPantry, savePantry, updateItem as pantryUpdateItem,
   getAvailableTags, getShoppingList, cycleStatus, formatShoppingList,
@@ -31,6 +31,7 @@ type Agenda = {
   dinnerNote?: string
   exerciseNote?: string
   quote?: { text: string, author: QuoteAuthor }
+  energyLevel?: 'HIGH' | 'MEDIUM' | 'LOW'
 }
 
 type Settings = {
@@ -135,8 +136,8 @@ export default function App() {
     const text = formatShoppingList(pantry)
     void navigator.clipboard.writeText(text)
   }
-  function suggestExercise(dateISO: string) {
-    const p = planForDate(dateISO)
+  function suggestExercise(dateISO: string, energy?: 'HIGH' | 'MEDIUM' | 'LOW') {
+    const p = planForDate(dateISO, energy)
     setAgenda(a => ({ ...a, exerciseNote: planNote(p) }))
   }
 
@@ -187,7 +188,7 @@ export default function App() {
 
     setAgenda(next)
     suggestMeals(next.dateISO)
-    suggestExercise(next.dateISO)
+    suggestExercise(next.dateISO, next.energyLevel)
 
     if (settings.notify.quotes) {
       void nativeNotify({ title: 'Daily Inspiration', body: `${quoteObj.text} — ${quoteObj.author}` })
@@ -285,6 +286,42 @@ export default function App() {
           Enable Notifications
         </button>
       </div>
+
+      {/* Energy Level Badge + Manual Override */}
+      {agenda.checkinISO && (
+        <div className="flex flex-col items-center gap-2 mb-4">
+          <div className={[
+            'px-5 py-2 rounded-full text-sm font-bold tracking-wide',
+            agenda.energyLevel === 'HIGH'   ? 'bg-emerald-700 text-white' :
+            agenda.energyLevel === 'MEDIUM' ? 'bg-amber-600 text-white' :
+                                              'bg-red-700 text-white'
+          ].join(' ')}>
+            Energy: {agenda.energyLevel ?? 'MEDIUM'}
+          </div>
+          <div className="flex gap-1">
+            {(['HIGH', 'MEDIUM', 'LOW'] as const).map(lvl => (
+              <button
+                key={lvl}
+                className={[
+                  'px-3 py-1 rounded-lg text-xs font-semibold border transition-colors',
+                  agenda.energyLevel === lvl
+                    ? lvl === 'HIGH'   ? 'bg-emerald-700 border-emerald-600 text-white'
+                    : lvl === 'MEDIUM' ? 'bg-amber-600 border-amber-500 text-white'
+                    :                   'bg-red-700 border-red-600 text-white'
+                    : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:bg-zinc-800'
+                ].join(' ')}
+                onClick={() => {
+                  setAgenda(a => ({ ...a, energyLevel: lvl }))
+                  suggestExercise(agenda.dateISO, lvl)
+                }}
+              >
+                {lvl}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-zinc-500">Predicted from sleep — tap to override</p>
+        </div>
+      )}
 
       {/* Centered quote section */}
       {agenda.quote && (
@@ -521,6 +558,39 @@ export default function App() {
               />
               <span className="text-xs text-zinc-400">{sleep.quality ?? 7}</span>
             </label>
+            <label className="text-sm text-zinc-300 flex items-center justify-between gap-2 col-span-full">
+              Energy on Wake (1–10)
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={1}
+                className="w-64"
+                value={sleep.energyOnWake ?? 5}
+                onChange={(e) => setSleep(s => ({ ...s, energyOnWake: Number(e.target.value) }))}
+              />
+              <span className={[
+                'text-xs font-semibold',
+                (sleep.energyOnWake ?? 5) >= 7 ? 'text-emerald-400' :
+                (sleep.energyOnWake ?? 5) >= 4 ? 'text-amber-400' : 'text-red-400'
+              ].join(' ')}>{sleep.energyOnWake ?? 5}</span>
+            </label>
+            <label className="text-sm text-zinc-300 flex items-center justify-between gap-2 col-span-full">
+              <span>Morning Qi Gong completed</span>
+              <input
+                type="checkbox"
+                className="w-5 h-5 accent-emerald-500"
+                checked={sleep.qigongDone ?? false}
+                onChange={(e) => setSleep(s => ({ ...s, qigongDone: e.target.checked }))}
+              />
+            </label>
+            <div className="col-span-full">
+              <p className="text-xs text-zinc-500 mb-1">Predicted energy: <span className={[
+                'font-semibold',
+                predictedEnergyLevel(sleep) === 'HIGH'   ? 'text-emerald-400' :
+                predictedEnergyLevel(sleep) === 'MEDIUM' ? 'text-amber-400'   : 'text-red-400'
+              ].join(' ')}>{predictedEnergyLevel(sleep)}</span></p>
+            </div>
             <div className="col-span-full">
               <textarea
                 className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 min-h-[90px]"

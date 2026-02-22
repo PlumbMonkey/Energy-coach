@@ -1,11 +1,15 @@
 export type SleepEntry = {
   /** Day bucket keyed to the WAKE day in local time (YYYY-MM-DDT00:00:00.000Z style ISO is fine for v1). */
   dateISO: string;
-  bedISO?: string;   // when you went to bed (local)
-  wakeISO?: string;  // when you woke up (local)
-  quality?: number;  // 1..10
-  dream?: string;    // free text
-  tzOffsetMin?: number; // local timezone offset at capture time (for future-proofing)
+  bedISO?: string;         // when you went to bed (local)
+  wakeISO?: string;        // when you woke up (local)
+  quality?: number;        // 1..10
+  dream?: string;          // free text
+  tzOffsetMin?: number;    // local timezone offset at capture time (for future-proofing)
+  // --- Phase 3 additions ---
+  energyOnWake?: number;   // 1..10 — how the user actually feels on waking
+  qigongDone?: boolean;    // was morning Qi Gong practice completed
+  notes?: string;          // brief morning state freetext
 };
 
 export function defaultSleep(dateISO: string): SleepEntry {
@@ -34,5 +38,22 @@ export function wakeDayISO(wakeISO?: string): string {
   const d = wakeISO ? new Date(wakeISO) : new Date();
   d.setHours(0,0,0,0);
   return d.toISOString();
+}
+
+/**
+ * Predicts energy level from sleep data.
+ * Weighted: wake feeling matters most (45%), then quality (35%), then duration (20%).
+ * Returns HIGH / MEDIUM / LOW.
+ */
+export function predictedEnergyLevel(
+  e: SleepEntry
+): 'HIGH' | 'MEDIUM' | 'LOW' {
+  const mins = minutesSlept(e) ?? 0;
+  const quality = e.quality ?? 5;
+  const wake = e.energyOnWake ?? 5;
+  const score = (wake * 0.45) + (quality * 0.35) + (Math.min(mins / 60, 9) * 0.20);
+  if (score >= 7.0) return 'HIGH';
+  if (score >= 4.5) return 'MEDIUM';
+  return 'LOW';
 }
 
