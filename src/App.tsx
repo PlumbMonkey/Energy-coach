@@ -1,4 +1,4 @@
-// src/App.tsx — responsive, with Tasks + Sleep
+// src/App.tsx — responsive, with Tasks + Pantry + Sleep
 
 import { useEffect, useMemo, useState } from 'react'
 import { pickQuote } from './lib/quotes'
@@ -8,6 +8,11 @@ import { pickRecipe, formatRecipeNote, recipesFor } from './lib/recipes'
 import { planForDate, planNote } from './lib/exercise'
 import { listTodayEvents, type GEvent } from './lib/google'
 import { defaultSleep, minutesSlept, fmtHhMm, type SleepEntry } from './lib/sleep'
+import {
+  loadPantry, savePantry, updateItem as pantryUpdateItem,
+  getAvailableTags, getShoppingList, cycleStatus, formatShoppingList,
+  type PantryItem, type PantryCategory,
+} from './lib/pantry'
 
 type QuoteAuthor = 'Bruce Lee' | 'Alan Watts'
 type Meal = 'breakfast' | 'lunch' | 'dinner'
@@ -72,6 +77,10 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(() => LS.get('ec_settings', DEFAULT_SETTINGS))
   const [agenda, setAgenda] = useState<Agenda>(() => LS.get('ec_agenda', { dateISO: todayISO() }))
   const [tasks, setTasks] = useState<GEvent[]>([])
+  const [pantry, setPantry] = useState<PantryItem[]>(() => loadPantry())
+  const [pantryOpen, setPantryOpen] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 640px)').matches
+  )
   const [sleep, setSleep] = useState<SleepEntry>(() => {
     const day = (LS.get<Agenda>('ec_agenda', { dateISO: todayISO() }).dateISO).slice(0, 10)
     return LS.get<SleepEntry | null>('ec_sleep_' + day, null) ?? defaultSleep(day + 'T00:00:00.000Z')
@@ -80,6 +89,7 @@ export default function App() {
   // persist
   useEffect(() => { LS.set('ec_settings', settings) }, [settings])
   useEffect(() => { LS.set('ec_agenda', agenda) }, [agenda])
+  useEffect(() => { savePantry(pantry) }, [pantry])
   useEffect(() => {
     const key = 'ec_sleep_' + agenda.dateISO.slice(0, 10)
     LS.set(key, sleep)
@@ -99,11 +109,31 @@ export default function App() {
   useEffect(() => { void ensurePermission() }, [])
 
   // ----- helpers to auto-fill notes -----
-  function suggestMeals(dateISO: string) {
-    const b = formatRecipeNote(pickRecipe('breakfast', dateISO))
-    const l = formatRecipeNote(pickRecipe('lunch', dateISO))
-    const d = formatRecipeNote(pickRecipe('dinner', dateISO))
+  function suggestMeals(dateISO: string, pantryItems = pantry) {
+    const tags = getAvailableTags(pantryItems)
+    const b = formatRecipeNote(pickRecipe('breakfast', dateISO, tags))
+    const l = formatRecipeNote(pickRecipe('lunch', dateISO, tags))
+    const d = formatRecipeNote(pickRecipe('dinner', dateISO, tags))
     setAgenda(a => ({ ...a, breakfastNote: b, lunchNote: l, dinnerNote: d }))
+  }
+
+  function togglePantryItem(id: string) {
+    setPantry(prev => {
+      const item = prev.find(i => i.id === id)
+      if (!item) return prev
+      return pantryUpdateItem(prev, id, cycleStatus(item.status))
+    })
+  }
+
+  function clearBought() {
+    setPantry(prev =>
+      prev.map(item => item.status === 'out' ? { ...item, status: 'full', updatedAt: new Date().toISOString() } : item)
+    )
+  }
+
+  function shareShoppingList() {
+    const text = formatShoppingList(pantry)
+    void navigator.clipboard.writeText(text)
   }
   function suggestExercise(dateISO: string) {
     const p = planForDate(dateISO)
@@ -165,9 +195,9 @@ export default function App() {
 
     scheduleDayNotifications({
       ...next,
-      breakfastNote: pickRecipe('breakfast', next.dateISO).title,
-      lunchNote: pickRecipe('lunch', next.dateISO).title,
-      dinnerNote: pickRecipe('dinner', next.dateISO).title,
+      breakfastNote: pickRecipe('breakfast', next.dateISO, getAvailableTags(pantry)).title,
+      lunchNote: pickRecipe('lunch', next.dateISO, getAvailableTags(pantry)).title,
+      dinnerNote: pickRecipe('dinner', next.dateISO, getAvailableTags(pantry)).title,
       exerciseNote: planForDate(next.dateISO).title,
     })
   }
@@ -366,6 +396,88 @@ export default function App() {
           </ul>
         </div>
 
+        {/* Pantry & Shopping List */}
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-950 mx-auto w-full overflow-hidden">
+          {/* Collapsible header */}
+          <button
+            className="w-full flex items-center justify-between px-5 py-4 text-left"
+            onClick={() => setPantryOpen(o => !o)}
+          >
+            <span className="text-lg font-semibold">Pantry &amp; Shopping List</span>
+            <span className="text-zinc-400 text-sm">{pantryOpen ? '▲ collapse' : '▼ expand'}</span>
+          </button>
+
+          {pantryOpen && (
+            <div className="px-5 pb-5">
+              {/* Items grouped by category */}
+              {(['protein', 'produce', 'pantry', 'dairy', 'frozen', 'drinks'] as PantryCategory[]).map(cat => {
+                const catItems = pantry.filter(i => i.category === cat)
+                if (catItems.length === 0) return null
+                return (
+                  <div key={cat} className="mb-4">
+                    <p className="text-xs uppercase tracking-widest text-zinc-500 mb-2 capitalize">{cat}</p>
+                    <div className="flex flex-col gap-1">
+                      {catItems.map(item => (
+                        <div key={item.id} className="flex items-center justify-between gap-3">
+                          <span className="text-sm text-zinc-200 min-w-0 break-words">{item.name}</span>
+                          <button
+                            className={[
+                              'shrink-0 min-h-[44px] min-w-[72px] rounded-lg text-sm font-semibold border px-3',
+                              item.status === 'full' ? 'bg-emerald-700 border-emerald-600 text-white' :
+                              item.status === 'low'  ? 'bg-amber-600 border-amber-500 text-white' :
+                                                      'bg-red-700 border-red-600 text-white'
+                            ].join(' ')}
+                            onClick={() => togglePantryItem(item.id)}
+                          >
+                            {item.status.toUpperCase()}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Shopping List */}
+              <div className="border-t border-zinc-800 pt-4 mt-2">
+                <p className="text-sm font-semibold text-zinc-300 mb-2">Shopping List</p>
+                {getShoppingList(pantry).length === 0 ? (
+                  <p className="text-sm text-zinc-400">Pantry is fully stocked!</p>
+                ) : (
+                  <ul className="space-y-1 mb-3">
+                    {getShoppingList(pantry).map(item => (
+                      <li key={item.id} className="flex items-center justify-between gap-2">
+                        <span
+                          className={`text-base font-medium ${
+                            item.status === 'out' ? 'text-red-400' : 'text-amber-400'
+                          }`}
+                        >
+                          {item.name}
+                        </span>
+                        <span className="text-xs text-zinc-500">{item.status}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold"
+                    onClick={clearBought}
+                  >
+                    Clear Bought
+                  </button>
+                  <button
+                    className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white text-sm font-semibold"
+                    onClick={shareShoppingList}
+                  >
+                    Share List
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Sleep Health */}
         <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5 mx-auto text-center w-full">
           <h3 className="text-lg font-semibold mb-2">Sleep Health</h3>
@@ -523,10 +635,5 @@ export default function App() {
     </div>
   )
 }
-
-// GOOD: Returns both text and author together
-// function pickQuote(pref: 'bruce' | 'alan' | 'both'): { text: string, author: QuoteAuthor } {
-//   // ...returns { text, author }...
-// }
 
 
