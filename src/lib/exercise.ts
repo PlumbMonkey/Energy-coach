@@ -5,7 +5,28 @@ function dayIndex(dateISO: string) {
   return new Date(dateISO).getDay(); // 0..6
 }
 
-export function planForDate(dateISO: string): Plan {
+/** Standalone Qi Gong plan — used for LOW energy days */
+const QG_STANDALONE: Plan = {
+  title: 'Qi Gong Practice (Full Session)',
+  blocks: [
+    { label: 'Wuji Standing Meditation', minutes: 5,
+      details: 'Settle into posture, natural breath, clear mind' },
+    { label: 'Ba Duan Jin (8 Brocades)', minutes: 20,
+      details: 'Full sequence, smooth transitions, nasal breath' },
+    { label: 'Wu Xing — 5 Elements Flow', minutes: 10,
+      details: 'Organ meridian sequence, gentle and continuous' },
+    { label: 'Shou Gong — Closing', minutes: 5,
+      details: 'Gather qi to lower dantian, three deep breaths' },
+  ]
+}
+
+export function planForDate(
+  dateISO: string,
+  energy?: 'HIGH' | 'MEDIUM' | 'LOW',
+): Plan {
+  // LOW energy days always get the gentle standalone Qi Gong session
+  if (energy === 'LOW') return QG_STANDALONE;
+
   const d = dayIndex(dateISO) % 4; // 4-day rotation
   const commonWarm: Block = { label: 'Qi Gong Warm-up', minutes: 10, details: 'Ba Duan Jin style; gentle range' };
   const cool: Block = { label: 'Qi Gong Cool-down', minutes: 5, details: 'Loose shakes, breath, open/close' };
