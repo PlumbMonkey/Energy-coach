@@ -26,11 +26,24 @@ function getAudioContextCtor(): AudioContextCtor | undefined {
   return w.AudioContext ?? w.webkitAudioContext;
 }
 
+// Singleton AudioContext — prevents accumulation on long sessions
+let _audioCtx: AudioContext | null = null;
+function getAudioCtx(): AudioContext {
+  const Ctx = getAudioContextCtor();
+  if (!Ctx) throw new Error('AudioContext not supported');
+  if (!_audioCtx || _audioCtx.state === 'closed') {
+    _audioCtx = new Ctx();
+  }
+  // Resume if suspended (browser autoplay policy)
+  if (_audioCtx.state === 'suspended') {
+    void _audioCtx.resume();
+  }
+  return _audioCtx;
+}
+
 export function beep(ms = 400, hz = 880): void {
   try {
-    const Ctx = getAudioContextCtor();
-    if (!Ctx) return;
-    const ctx = new Ctx();
+    const ctx = getAudioCtx();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
@@ -45,7 +58,7 @@ export function beep(ms = 400, hz = 880): void {
     osc.connect(gain).connect(ctx.destination);
     osc.start();
     osc.stop(now + ms / 1000 + 0.02);
-    osc.onended = () => { void ctx.close(); };
+    // Don't close the singleton context — just let the oscillator finish
   } catch (err) {
     if (import.meta.env.DEV) console.warn('beep() failed', err);
   }
