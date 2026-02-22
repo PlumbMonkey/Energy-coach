@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Prevent horizontal scrolling */
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* Safer sizing on small screens */
+* { box-sizing: border-box; }
+
+/* Media shouldn’t overflow */
+img, video, canvas, svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Form controls shouldn’t force overflow */
+input, select, textarea {
+  max-width: 100%;
+}
