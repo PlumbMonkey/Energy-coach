@@ -152,9 +152,7 @@ export default function App() {
       dateISO: todayISO(),
       checkinISO: nowISO,
       breakfastISO, lunchISO, dinnerISO, exerciseISO,
-      quote: typeof quoteObj === 'string'
-        ? { text: quoteObj, author: 'Bruce Lee' } // fallback, should not happen if pickQuote is typed correctly
-        : quoteObj,
+      quote: quoteObj,
     }
 
     setAgenda(next)
@@ -250,8 +248,11 @@ export default function App() {
         >
           Check In
         </button>
-        <button className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-800 text-white font-semibold shadow">
-          Enable
+        <button
+          className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-800 text-white font-semibold shadow"
+          onClick={() => void ensurePermission()}
+        >
+          Enable Notifications
         </button>
       </div>
 
