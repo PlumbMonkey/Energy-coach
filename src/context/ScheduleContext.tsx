@@ -25,7 +25,6 @@ const ScheduleContext = createContext<
 >(undefined)
 
 const STORAGE_KEY = 'conductor_schedule_v1'
-const FIREBASE_USER_ID = 'gregg' // Single-user app for now
 const FIRESTORE_DOC = 'tasks'
 const FIRESTORE_COLLECTION = 'conductor'
 
