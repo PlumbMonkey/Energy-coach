@@ -13,6 +13,10 @@ import {
   getAvailableTags, getShoppingList, cycleStatus, formatShoppingList,
   type PantryItem, type PantryCategory,
 } from './lib/pantry'
+import MealPlannerTab from './components/MealPlannerTab'
+import GroceryListTab from './components/GroceryListTab'
+import { ScheduleProvider } from './context/ScheduleContext'
+import TodaySchedulePanel from './components/TodaySchedulePanel'
 
 type QuoteAuthor = 'Bruce Lee' | 'Alan Watts'
 type Meal = 'breakfast' | 'lunch' | 'dinner'
@@ -74,14 +78,25 @@ const DEFAULT_SETTINGS: Settings = {
 
 type CardItem = { key: CardKey; label: string; iso: string; noteKey: AgendaNoteKey }
 
+// Typed wrapper for the non-standard beforeinstallprompt event
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>
+  readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+}
+
 export default function App() {
   const [settings, setSettings] = useState<Settings>(() => LS.get('ec_settings', DEFAULT_SETTINGS))
   const [agenda, setAgenda] = useState<Agenda>(() => LS.get('ec_agenda', { dateISO: todayISO() }))
   const [tasks, setTasks] = useState<GEvent[]>([])
+  const [taskError, setTaskError] = useState<string | null>(null)
+  const [tasksLoaded, setTasksLoaded] = useState(false)
   const [pantry, setPantry] = useState<PantryItem[]>(() => loadPantry())
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [pantryOpen, setPantryOpen] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(min-width: 640px)').matches
   )
+  const [mealPlannerOpen, setMealPlannerOpen] = useState(false)
+  const [mealPlannerTab, setMealPlannerTab] = useState<'meal-plan' | 'grocery-list'>('meal-plan')
   const [sleep, setSleep] = useState<SleepEntry>(() => {
     const day = (LS.get<Agenda>('ec_agenda', { dateISO: todayISO() }).dateISO).slice(0, 10)
     return LS.get<SleepEntry | null>('ec_sleep_' + day, null) ?? defaultSleep(day + 'T00:00:00.000Z')
@@ -108,6 +123,23 @@ export default function App() {
 
   // permissions once
   useEffect(() => { void ensurePermission() }, [])
+
+  // Capture the PWA install prompt
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setInstallPrompt(e as BeforeInstallPromptEvent)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  async function installApp() {
+    if (!installPrompt) return
+    await installPrompt.prompt()
+    const { outcome } = await installPrompt.userChoice
+    if (outcome === 'accepted') setInstallPrompt(null)
+  }
 
   // ----- helpers to auto-fill notes -----
   function suggestMeals(dateISO: string, pantryItems = pantry) {
@@ -274,22 +306,33 @@ export default function App() {
 
 
   async function refreshTasks() {
+    setTaskError(null)
     try {
       setTasks(await listTodayEvents())
+      setTasksLoaded(true)
     } catch (err) {
-      if (import.meta.env.DEV) console.warn('Calendar load failed', err)
+      const msg = err instanceof Error ? err.message : String(err)
+      setTaskError(msg)
       setTasks([])
+      setTasksLoaded(true)
     }
   }
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden p-6 bg-gradient-to-br from-zinc-900 via-slate-900 to-black">
+    <ScheduleProvider>
+      <div className="min-h-screen w-full max-w-full overflow-x-hidden p-6 bg-gradient-to-br from-zinc-900 via-slate-900 to-black">
       <header className="max-w-3xl mx-auto flex flex-col gap-2 mb-6 items-center text-center">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">EnergyCoach</h1>
         <p className="text-sm text-zinc-300">
           Daily agenda with meal & exercise reminders. Local-first. PWA-ready. Capacitor-friendly.
-        </p>
-      </header>
+        </p>        {installPrompt && (
+          <button
+            className="mt-1 px-4 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold shadow"
+            onClick={() => void installApp()}
+          >
+            Install App
+          </button>
+        )}      </header>
 
       {/* Centered Check In and Enable buttons */}
       <div className="flex justify-center gap-2 mb-4">
@@ -432,7 +475,14 @@ export default function App() {
             </div>
           </div>
           <ul className="mt-3 space-y-2">
-            {tasks.length === 0 && <li className="text-sm text-zinc-400">Connect & refresh to load today’s events.</li>}
+            {taskError && (
+              <li className="text-sm text-red-400 bg-red-950 border border-red-800 rounded-xl px-3 py-2 break-words">{taskError}</li>
+            )}
+            {!taskError && tasks.length === 0 && (
+              <li className="text-sm text-zinc-400">
+                {tasksLoaded ? 'No events found for today.' : "Connect & refresh to load today's events."}
+              </li>
+            )}
             {tasks.map(ev => (
               <li key={ev.id} className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 rounded-xl bg-zinc-900 border border-zinc-800">
                 <div className="min-w-0 text-center sm:text-left">
@@ -531,6 +581,62 @@ export default function App() {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Conductor Scheduler — Today's Schedule */}
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5 mx-auto w-full">
+          <h3 className="text-lg font-semibold mb-4">Conductor Schedule — Today</h3>
+          <TodaySchedulePanel />
+        </div>
+
+        {/* PKD Meal Planner & Grocery List */}
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-950 mx-auto w-full overflow-hidden">
+          {/* Collapsible header */}
+          <button
+            className="w-full flex items-center justify-between px-5 py-4 text-left"
+            onClick={() => setMealPlannerOpen((o) => !o)}
+          >
+            <div className="flex items-baseline gap-2">
+              <span className="text-lg font-semibold">PKD Meal Planner &amp; Grocery List</span>
+              <span className="text-xs text-zinc-500 font-normal">7-day · Low-sodium</span>
+            </div>
+            <span className="text-zinc-400 text-sm">
+              {mealPlannerOpen ? '▲ collapse' : '▼ expand'}
+            </span>
+          </button>
+
+          {mealPlannerOpen && (
+            <div className="px-5 pb-5">
+              {/* Sub-tabs */}
+              <div className="flex gap-1 mb-5 border-b border-zinc-800">
+                <button
+                  className={[
+                    'px-4 py-2 text-sm font-semibold transition-colors border-b-2 -mb-px',
+                    mealPlannerTab === 'meal-plan'
+                      ? 'border-orange-500 text-orange-400'
+                      : 'border-transparent text-zinc-400 hover:text-zinc-200',
+                  ].join(' ')}
+                  onClick={() => setMealPlannerTab('meal-plan')}
+                >
+                  Meal Plan
+                </button>
+                <button
+                  className={[
+                    'px-4 py-2 text-sm font-semibold transition-colors border-b-2 -mb-px',
+                    mealPlannerTab === 'grocery-list'
+                      ? 'border-green-500 text-green-400'
+                      : 'border-transparent text-zinc-400 hover:text-zinc-200',
+                  ].join(' ')}
+                  onClick={() => setMealPlannerTab('grocery-list')}
+                >
+                  Grocery List
+                </button>
+              </div>
+
+              {mealPlannerTab === 'meal-plan' && <MealPlannerTab />}
+              {mealPlannerTab === 'grocery-list' && <GroceryListTab />}
             </div>
           )}
         </div>
@@ -722,7 +828,8 @@ export default function App() {
       <footer className="max-w-3xl mx-auto mt-8 text-xs text-zinc-500">
         <p>Local-first. To sync across devices, add Firebase later (Auth + Firestore) and mirror this agenda structure in the cloud.</p>
       </footer>
-    </div>
+      </div>
+    </ScheduleProvider>
   )
 }
 

@@ -93,6 +93,22 @@ export async function listTodayEvents(): Promise<GEvent[]> {
   const start = new Date(now); start.setHours(0,0,0,0);
   const end   = new Date(now); end.setHours(23,59,59,999);
 
+  type ApiEvent = {
+    id: string; status?: string; summary?: string; location?: string; htmlLink?: string;
+    start?: { dateTime?: string; date?: string };
+    end?:   { dateTime?: string; date?: string };
+  };
+
+  // Fetch all writable/readable calendars first
+  const calListRes = await fetch(
+    'https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader',
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!calListRes.ok) throw new Error(`CalendarList failed: ${calListRes.status} ${await calListRes.text()}`);
+  const calListData = await calListRes.json() as { items?: Array<{ id: string; summary?: string }> };
+  const calendars = calListData.items ?? [];
+
+  // Query events from every calendar in parallel
   const params = new URLSearchParams({
     timeMin: start.toISOString(),
     timeMax: end.toISOString(),
@@ -100,36 +116,47 @@ export async function listTodayEvents(): Promise<GEvent[]> {
     orderBy: 'startTime',
   });
 
-  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
-  if (!res.ok) throw new Error(`Calendar list failed: ${res.status} ${await res.text()}`);
+  const allEvents: GEvent[] = [];
+  const seen = new Set<string>();
+  const errors: string[] = [];
 
-  type ApiEvent = {
-    id: string; status?: string; summary?: string; location?: string; htmlLink?: string;
-    start?: { dateTime?: string; date?: string };
-    end?:   { dateTime?: string; date?: string };
-  };
+  await Promise.all(calendars.map(async (cal) => {
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${params}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (!res.ok) {
+        errors.push(`${cal.summary ?? cal.id}: HTTP ${res.status}`);
+        return;
+      }
+      const data = await res.json() as { items?: ApiEvent[] };
+      for (const e of (data.items ?? [])) {
+        if (e.status === 'cancelled') continue;
+        if (seen.has(e.id)) continue;
+        seen.add(e.id);
+        const startISO = e.start?.dateTime ?? (e.start?.date ? `${e.start.date}T00:00:00.000Z` : new Date().toISOString());
+        const endISO   = e.end?.dateTime   ?? (e.end?.date   ? `${e.end.date}T23:59:59.999Z` : undefined);
+        allEvents.push({
+          id: e.id,
+          summary: e.summary || '(no title)',
+          startISO,
+          endISO,
+          location: e.location,
+          htmlLink: e.htmlLink,
+          allDay: !!e.start?.date && !e.start?.dateTime,
+        });
+      }
+    } catch (e) {
+      errors.push(`${cal.summary ?? cal.id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }));
 
-  const data = await res.json() as { items?: ApiEvent[] };
-  const items = (data.items ?? [])
-    .filter(e => e.status !== 'cancelled')
-    .map((e): GEvent => {
-      const startISO = e.start?.dateTime ?? (e.start?.date ? `${e.start.date}T00:00:00.000Z` : new Date().toISOString());
-      const endISO   = e.end?.dateTime   ?? (e.end?.date   ? `${e.end.date}T23:59:59.999Z` : undefined);
-      const allDay = !!e.start?.date && !e.start?.dateTime;
-      return {
-        id: e.id,
-        summary: e.summary || '(no title)',
-        startISO,
-        endISO,
-        location: e.location,
-        htmlLink: e.htmlLink,
-        allDay,
-      };
-    });
+  if (errors.length > 0 && allEvents.length === 0) {
+    throw new Error(`All calendars failed:\n${errors.join('\n')}`);
+  }
 
-  return items;
+  return allEvents.sort((a, b) => new Date(a.startISO).getTime() - new Date(b.startISO).getTime());
 }
 
 // ---- Google Tasks (due today, not completed) ----

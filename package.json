@@ -7,9 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:extension": "vite build --config vite.extension.config.ts",
+    "electron:dev": "vite && electron .",
+    "electron:build": "vite build && electron-builder --win",
+    "electron:preview": "vite preview && electron ."
   },
+  "main": "electron/main.js",
   "dependencies": {
+    "firebase": "^10.13.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
@@ -19,6 +25,9 @@
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.21",
+    "electron": "^28.0.0",
+    "electron-builder": "^25.0.0",
+    "electron-is-dev": "^3.0.0",
     "eslint": "^9.33.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
@@ -28,5 +37,30 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.39.1",
     "vite": "^7.1.2"
+  },
+  "build": {
+    "appId": "com.energycoach.app",
+    "productName": "Energy Coach",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "node_modules/**/*"
+    ],
+    "directories": {
+      "buildResources": "electron"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "certificateFile": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

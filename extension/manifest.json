@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Energy Coach Scheduler",
+  "version": "1.0.0",
+  "description": "Quick access to today's task schedule from your browser",
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Energy Coach Schedule"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "images/icon-16.png",
+    "48": "images/icon-48.png",
+    "128": "images/icon-128.png"
+  }
+}
